@@ -1,20 +1,24 @@
 {
-  "name": "@cv/relay-alt",
-  "private": true,
+  "name": "cv-relay-alt",
   "version": "0.1.0",
   "description": "CareerVector alt-relay — stateless WebSocket fan-out relay for DO failover",
-  "type": "module",
   "scripts": {
-    "start": "bun run src/index.ts",
-    "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js",
-    "test": "bun test"
+    "build": "tsc --outDir dist",
+    "start": "node dist/index.js",
+    "prestart": "npm run build",
+    "dev": "tsx watch src/index.ts",
+    "test": "echo 'run: RELAY_URL=ws://localhost:8787 npx tsx test/relay.test.ts'"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
-    "bun-types": "^1.2.0"
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
   },
   "engines": {
-    "bun": ">=1.1.0"
+    "node": ">=20"
   }
 }
