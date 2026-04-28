@@ -3,20 +3,12 @@
   "version": "0.1.0",
   "description": "CareerVector alt-relay — stateless WebSocket fan-out relay for DO failover",
   "scripts": {
-    "build": "tsc --outDir dist",
-    "start": "node dist/index.js",
-    "prestart": "npm run build",
-    "dev": "tsx watch src/index.ts",
-    "test": "echo 'run: RELAY_URL=ws://localhost:8787 npx tsx test/relay.test.ts'"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "echo 'run: RELAY_URL=ws://localhost:8787 node --experimental-test-runner test/relay.test.mjs'"
   },
   "dependencies": {
     "ws": "^8.18.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=20"
