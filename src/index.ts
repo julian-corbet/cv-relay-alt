@@ -1,5 +1,5 @@
 /**
- * CareerVector alt-relay — stateless WebSocket fan-out relay.
+ * CareerVector alt-relay — Deno Deploy runtime.
  *
  * Drop-in failover for the Cloudflare Durable Object relay (apps/realtime).
  * Same wire protocol: binary frames are broadcast verbatim to every other
@@ -11,16 +11,11 @@
  * All frame types (MSG_SYNC=0, MSG_AWARENESS=1, MSG_P2P_SIGNAL=200, etc.)
  * are relayed without inspection — identical to the DO thin-relay mode.
  *
- * Uses Node.js http + the 'ws' package for WebSocket handling so Koyeb's
- * Node.js buildpack can auto-detect and deploy without a custom Dockerfile.
+ * Runtime: Deno Deploy (Deno.serve + Deno.upgradeWebSocket — no npm deps).
+ * The Node.js fallback (for local testing) is in src/index.node.ts.
  */
 
-import http from 'node:http';
-import { WebSocketServer, WebSocket } from 'ws';
-
-const PORT = Number(process.env.PORT ?? 8787);
-
-// Room registry: workspaceId → set of live sockets.
+// Room registry: workspaceId → set of live WebSocket connections.
 const rooms = new Map<string, Set<WebSocket>>();
 
 function joinRoom(wsId: string, ws: WebSocket): void {
@@ -39,7 +34,7 @@ function leaveRoom(wsId: string, ws: WebSocket): void {
 	if (room.size === 0) rooms.delete(wsId);
 }
 
-function fanOut(wsId: string, sender: WebSocket, data: Buffer): void {
+function fanOut(wsId: string, sender: WebSocket, data: ArrayBufferLike): void {
 	const room = rooms.get(wsId);
 	if (!room) return;
 	for (const peer of room) {
@@ -56,53 +51,55 @@ function fanOut(wsId: string, sender: WebSocket, data: Buffer): void {
 	}
 }
 
-// HTTP server for health check + WS upgrade handling.
-const httpServer = http.createServer((req, res) => {
-	if (req.url === '/health') {
-		const totalConns = [...rooms.values()].reduce((n, r) => n + r.size, 0);
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ status: 'ok', rooms: rooms.size, connections: totalConns, ts: Date.now() }));
-		return;
-	}
-	res.writeHead(200, { 'Content-Type': 'text/plain' });
-	res.end('CareerVector alt-relay\n\nEndpoints:\n  /ws/<workspaceId>  WebSocket\n  /health            Health check\n');
-});
-
-// WebSocket server — only handles paths matching /ws/<workspaceId>.
-const wss = new WebSocketServer({ noServer: true });
-
-httpServer.on('upgrade', (req, socket, head) => {
-	const rawUrl = req.url ?? '/';
-	const url = new URL(rawUrl, 'http://localhost');
-	const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
-	if (!wsMatch) {
-		socket.destroy();
-		return;
-	}
-	const wsId = wsMatch[1];
-	if (!wsId || wsId.length < 4 || wsId.length > 64) {
-		socket.destroy();
-		return;
-	}
-	wss.handleUpgrade(req, socket, head, (ws) => {
-		wss.emit('connection', ws, req, wsId);
-	});
-});
-
-wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, wsId: string) => {
+function handleWebSocket(wsId: string, ws: WebSocket): void {
 	joinRoom(wsId, ws);
 
-	ws.on('message', (data: Buffer, isBinary: boolean) => {
+	ws.addEventListener("message", (ev) => {
 		// Only binary frames are relayed — Yjs protocol is binary-only.
 		// String frames are dropped (same as DO thin-relay mode).
-		if (!isBinary) return;
-		fanOut(wsId, ws, data);
+		if (!(ev.data instanceof ArrayBuffer)) return;
+		fanOut(wsId, ws, ev.data);
 	});
 
-	ws.on('close', () => leaveRoom(wsId, ws));
-	ws.on('error', () => leaveRoom(wsId, ws));
-});
+	ws.addEventListener("close", () => leaveRoom(wsId, ws));
+	ws.addEventListener("error", () => leaveRoom(wsId, ws));
+}
 
-httpServer.listen(PORT, () => {
-	console.log(`[relay-alt] listening on port ${PORT}`);
+function handleHealth(): Response {
+	const totalConns = [...rooms.values()].reduce((n, r) => n + r.size, 0);
+	return Response.json({ status: "ok", rooms: rooms.size, connections: totalConns, ts: Date.now() });
+}
+
+function handleRoot(): Response {
+	return new Response(
+		"CareerVector alt-relay\n\nEndpoints:\n  /ws/<workspaceId>  WebSocket\n  /health            Health check\n",
+		{ headers: { "Content-Type": "text/plain" } },
+	);
+}
+
+Deno.serve((req: Request): Response => {
+	const url = new URL(req.url);
+
+	// Health check.
+	if (req.method === "GET" && url.pathname === "/health") {
+		return handleHealth();
+	}
+
+	// WebSocket upgrade — only /ws/<workspaceId>.
+	const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
+	if (wsMatch && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+		const wsId = wsMatch[1];
+
+		// Basic workspace ID validation — same bounds as the Node version.
+		if (!wsId || wsId.length < 4 || wsId.length > 64) {
+			return new Response("Bad Request: invalid workspace ID", { status: 400 });
+		}
+
+		const { socket, response } = Deno.upgradeWebSocket(req);
+		handleWebSocket(wsId, socket);
+		return response;
+	}
+
+	// Default root response.
+	return handleRoot();
 });

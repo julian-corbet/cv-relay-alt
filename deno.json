@@ -1,0 +1,16 @@
+{
+  "name": "@cv/relay-alt",
+  "version": "0.1.0",
+  "description": "CareerVector alt-relay — stateless WebSocket fan-out relay (Deno Deploy)",
+  "tasks": {
+    "start": "deno run --allow-net src/index.ts",
+    "dev": "deno run --allow-net --watch src/index.ts",
+    "test": "RELAY_URL=ws://localhost:8787 deno test --allow-net test/relay.deno.test.ts",
+    "test:deployed": "deno test --allow-net --allow-env test/relay.deno.test.ts"
+  },
+  "deploy": {
+    "project": "careervector-relay-alt",
+    "entrypoint": "src/index.ts",
+    "include": ["src/index.ts"]
+  }
+}

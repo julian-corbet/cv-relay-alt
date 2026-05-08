@@ -1,11 +1,10 @@
 {
   "name": "cv-relay-alt",
   "version": "0.1.0",
-  "description": "CareerVector alt-relay — stateless WebSocket fan-out relay for DO failover",
+  "description": "CareerVector alt-relay — stateless WebSocket fan-out relay (Node.js fallback). Canonical deploy runtime is Deno Deploy; see deno.json and src/index.ts.",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test": "echo 'run: RELAY_URL=ws://localhost:8787 node --experimental-test-runner test/relay.test.mjs'"
+    "start": "node src/index.node.js",
+    "dev": "node --watch src/index.node.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

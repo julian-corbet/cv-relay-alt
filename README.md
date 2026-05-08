@@ -1,12 +1,8 @@
 # relay-alt
 
-Stateless WebSocket fan-out relay for CareerVector. Serves as a vendor-independent
-failover for the Cloudflare Durable Object relay when the DO is quota-exhausted or
-unavailable.
+Stateless WebSocket fan-out relay for CareerVector. Vendor-independent failover for the Cloudflare Durable Object relay (`apps/realtime`) when the DO is quota-exhausted or unavailable.
 
-Implements the same wire protocol as `apps/realtime` in thin-relay mode: binary
-frames are broadcast verbatim to every other socket in the same workspace group.
-No state, no parsing, no persistence.
+Implements the same wire protocol as the DO in thin-relay mode: binary frames are broadcast verbatim to every other socket in the same workspace group. No state, no parsing, no persistence.
 
 ## Endpoints
 
@@ -15,101 +11,83 @@ No state, no parsing, no persistence.
 | `/ws/<workspaceId>?userId=<id>` | `GET` (WS upgrade) | Join a workspace relay group |
 | `/health` | `GET` | Health check; returns `{ status, rooms, connections, ts }` |
 
-## Architecture notes
+## Architecture
 
-- Pure in-process fan-out via a `Map<wsId, Set<ServerWebSocket>>`.
+- Pure in-process fan-out via a `Map<wsId, Set<WebSocket>>`.
 - Binary frames only — string frames are dropped (Yjs protocol is binary).
 - No authentication, no workspace validation (same as the DO thin-relay).
 - Stateless: no Yjs doc, no snapshots, no alarms.
+- Workspace IDs accepted in the range `[4, 64]` characters.
 
-## Deploy URL (staging)
+## Live deployment
 
-**`wss://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app/ws/<wsId>`**
+The canonical instance runs on **Deno Deploy** at `wss://careervector-relay-alt.corbet.deno.net`.
 
-HTTP health: `https://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app/health`
+Health check (HTTP):
+
+```
+https://careervector-relay-alt.corbet.deno.net/health
+```
+
+## Source layout
+
+| File | Runtime | Purpose |
+|------|---------|---------|
+| `src/index.ts` | **Deno Deploy** (canonical) | `Deno.serve` + `Deno.upgradeWebSocket` — no npm deps |
+| `src/index.node.ts` | Node.js | TypeScript source for local Node testing; uses the `ws` package |
+| `src/index.node.js` | Node.js | Plain-JS version of the Node runtime (no build step) |
+
+The Deno version is the deployed artifact. The Node versions are retained as a fallback for local debugging without Deno installed.
 
 ## Local development
 
-```bash
-# Install Bun (https://bun.sh) if not already installed:
-curl -fsSL https://bun.sh/install | bash
-
-# Run in dev mode (auto-restarts on file change):
-bun run dev
-
-# Run behavior tests (relay must be running):
-bun test
-```
-
-## Docker build
+### With Deno (recommended)
 
 ```bash
-docker build -t cv-relay-alt .
-docker run -p 8787:8787 cv-relay-alt
+# Install Deno: https://deno.land
+curl -fsSL https://deno.land/install.sh | sh
+
+# Run with auto-reload
+deno task dev
+
+# Run behavior tests against a running relay
+deno task test
 ```
 
-## Koyeb deployment
-
-The service is deployed on Koyeb using Docker (Dockerfile in this directory).
-
-**First deploy (done once):**
+### With Node fallback
 
 ```bash
-export KOYEB_TOKEN=<token from secrets/koyeb.md>
-
-# Create app + service pointing at the GitHub repo, relay-alt Dockerfile.
-koyeb app create careervector-relay-alt
-koyeb service create relay \
-  --app careervector-relay-alt \
-  --git github.com/julian-corbet/careervector \
-  --git-branch v2-sveltekit \
-  --git-build-context v2-app/apps/relay-alt \
-  --git-dockerfile v2-app/apps/relay-alt/Dockerfile \
-  --port 8787:http \
-  --health-check-path /health \
-  --regions fra \
-  --instance-type free
+npm install
+npm run dev
 ```
 
-**Redeploy after code changes:**
+## Tests
+
+| File | Runner | Notes |
+|------|--------|-------|
+| `test/relay.deno.test.ts` | `deno test` | Preferred |
+| `test/relay.test.ts` | `bun test` | Node-relay harness using Bun for assertions |
+
+Run against a deployed instance:
 
 ```bash
-koyeb service redeploy relay --app careervector-relay-alt
+RELAY_URL=wss://careervector-relay-alt.corbet.deno.net \
+  deno test --allow-net test/relay.deno.test.ts
 ```
 
-**Check deploy status:**
+## Deploying your own
+
+Generate a Deno Deploy token at https://dash.deno.com/account#access-tokens, then:
 
 ```bash
-koyeb service describe relay --app careervector-relay-alt
+DENO_DEPLOY_TOKEN=<your-token> deployctl deploy \
+  --project=<your-project-name> \
+  --prod \
+  src/index.ts
 ```
 
-## Post-deploy verification
+Install `deployctl` if needed:
 
-1. Health check:
-   ```bash
-   curl https://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app/health
-   ```
-
-2. Two-client smoke test:
-   ```bash
-   # terminal 1 — listen
-   wscat -c "wss://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app/ws/smoke-test"
-   # terminal 2 — send (after terminal 1 is connected)
-   wscat -c "wss://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app/ws/smoke-test"
-   ```
-
-3. Run behavior tests against the deployed instance:
-   ```bash
-   RELAY_URL=wss://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app bun test
-   ```
-
-## Client failover configuration
-
-Set `PUBLIC_ALT_RELAY_URL` in the web app's environment to activate failover:
-
+```bash
+deno install -gArf jsr:@deno/deployctl
 ```
-# wrangler.toml [env.staging.vars]
-PUBLIC_ALT_RELAY_URL = "wss://careervector-relay-alt-corbet-consulting-992944d3.koyeb.app"
-```
-
-The failover logic lives in `apps/web/src/lib/realtime/connection-impl.ts`.
