@@ -1,0 +1,12 @@
+# Managed by dotkeeper — https://github.com/julian-corbet/dotkeeper
+# Per-repo configuration (ADR 0001). Tracked in git for resilience.
+schema_version = 2
+
+[repo]
+name = "cv-relay-alt"
+added = "2026-05-12T10:35:00Z"
+added_by = "CACHYOS-Elitebook"
+
+[sync]
+syncthing_folder_id = "dk-cv-relay-alt-7e7a6e"
+# share_with omitted — inherits default_share_with from machine.toml
